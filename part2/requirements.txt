@@ -20,8 +20,12 @@ scipy==1.14.1            # Z-score, statistical tests
 
 # ===== Dashboard =====
 streamlit==1.39.0        # Web dashboard
+streamlit-autorefresh==1.0.1  # Auto-refresh component for live IoT tab
 plotly==5.24.1           # Interactive charts
 altair==5.4.1            # Alternative charting (used by Streamlit natively)
+
+# ===== Gemini OCR (optional) =====
+google-generativeai>=0.8.0
 
 # ===== IoT / real-time data =====
 paho-mqtt==2.1.0         # MQTT client for IoT sensors

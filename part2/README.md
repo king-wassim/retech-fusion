@@ -20,6 +20,14 @@ Then open **http://localhost:8501** in your browser.
 That's it. The first service runs the pipeline (extraction → normalization →
 CO₂ → anomalies), the second serves the Streamlit dashboard.
 
+The repository now also includes a standalone ESP32 firmware module in
+`part1/` for publishing MQTT sensor data into the same pipeline.
+
+```bash
+cd part1
+pio run
+```
+
 ### Option B — Local Python
 
 ```bash

@@ -1,42 +1,53 @@
 # =============================================================================
 # docker-compose.yml — Re·Tech Fusion
 # =============================================================================
-# Two services:
-#   - pipeline   : runs `python main.py` once, generating data/processed/*.csv
-#   - dashboard  : runs `streamlit run ...` and serves http://localhost:8501
-#
-# How to run:
-#     docker compose up --build
-#
-# Then open http://localhost:8501 in your browser.
-#
-# To re-run the pipeline only (e.g. after adding new files in data/raw/):
-#     docker compose run --rm pipeline
+# Services:
+#   - mosquitto     : MQTT broker (port 1883)
+#   - pipeline      : runs `python main.py` once and exits
+#   - esp-simulator : long-running, publishes simulated sensor data
+#   - dashboard     : Streamlit on http://localhost:8501
+# Run: docker compose up --build
 # =============================================================================
 
 services:
 
-  # ---------------------------------------------------------------------------
-  # 1. Pipeline service — runs once, then exits.
-  #    Generates data/processed/energy_consolidated.csv from data/raw/.
-  # ---------------------------------------------------------------------------
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: retech-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./docker/mosquitto.conf:/mosquitto/config/mosquitto.conf
+    restart: unless-stopped
+
   pipeline:
     build: .
     image: retech-fusion:latest
     container_name: retech-pipeline
     command: python main.py
     volumes:
-      # Mount data folders so the pipeline can read raw inputs and
-      # the dashboard can read the resulting CSV.
       - ./data:/app/data
+    env_file: .env
     environment:
       - CO2_FACTOR_KG_PER_KWH=0.468
       - GAS_PCI_KWH_PER_NM3=10.562
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+    depends_on:
+      - mosquitto
 
-  # ---------------------------------------------------------------------------
-  # 2. Dashboard service — long-running web server on port 8501.
-  #    Waits for the pipeline to finish before starting.
-  # ---------------------------------------------------------------------------
+  esp-simulator:
+    build: .
+    image: retech-fusion:latest
+    container_name: retech-esp-simulator
+    command: python src/iot/esp_simulator.py
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+
   dashboard:
     build: .
     image: retech-fusion:latest
@@ -46,10 +57,13 @@ services:
       - "8501:8501"
     volumes:
       - ./data:/app/data
+    env_file: .env
     environment:
       - CO2_FACTOR_KG_PER_KWH=0.468
       - GAS_PCI_KWH_PER_NM3=10.562
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
     depends_on:
-      pipeline:
-        condition: service_completed_successfully
+      - pipeline
+      - mosquitto
     restart: unless-stopped

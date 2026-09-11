@@ -282,6 +282,33 @@ def _extract_steg_meter_read(text: str, source: str) -> list[dict]:
                 "value": consommation,
                 "unit": unit,
             })
+
+    # OCR on phone photos often drops the column labels while keeping the two
+    # large index numbers on the same line. As a fallback, recover any line that
+    # contains at least two large numbers and treat them as old/new indices.
+    if not rows:
+        excluded_terms = ("TEL", "CLIENT", "REF", "N°CTR", "NCTR", "MOIS", "ANN", "AGENT")
+        candidate_lines: list[tuple[int, str, list[str]]] = []
+        for line in text.splitlines():
+            nums = re.findall(r"\b\d{6,9}\b", line)
+            if len(nums) < 2:
+                continue
+            if any(term in line.upper() for term in excluded_terms):
+                continue
+            alpha_score = len(re.findall(r"[A-Za-zÀ-ÿ]", line))
+            candidate_lines.append((alpha_score, line, nums))
+
+        if candidate_lines:
+            _, _, nums = min(candidate_lines, key=lambda item: (item[0], -len(item[2])))
+            old_i, new_i = int(nums[0]), int(nums[1])
+            consommation = max(0, new_i - old_i)
+            rows.append({
+                **base,
+                "category": "Index énergie",
+                "measure": "Index détecté (consommation période)",
+                "value": consommation,
+                "unit": "kWh",
+            })
     return rows
 
 
@@ -313,11 +340,24 @@ def _extract_sonede_water(text: str, source: str) -> list[dict]:
 def extract_image(filepath: Union[str, Path]) -> pd.DataFrame:
     """Extract energy data from a single scanned invoice/sheet image.
 
-    Returns a long-format DataFrame (possibly empty if nothing extracted).
+    Tries the Gemini API first (if GEMINI_API_KEY is set); falls back to
+    Tesseract + regex on failure or when Gemini is unavailable.
     """
     filepath = Path(filepath)
-    logger.info(f"OCR on image: {filepath.name}")
 
+    # Gemini first (much higher quality on noisy phone photos)
+    try:
+        from src.extraction.extract_gemini import extract_with_gemini, is_available
+        if is_available():
+            df = extract_with_gemini(filepath)
+            if not df.empty:
+                return df
+            logger.info(f"  Gemini returned no rows for {filepath.name}; "
+                        "falling back to Tesseract")
+    except Exception as e:
+        logger.warning(f"  Gemini path errored ({e}); falling back to Tesseract")
+
+    logger.info(f"OCR (Tesseract) on image: {filepath.name}")
     img = cv2.imread(str(filepath))
     if img is None:
         logger.error(f"  Could not read image: {filepath}")

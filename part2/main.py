@@ -20,14 +20,34 @@ from src.emissions.co2 import add_co2_emissions, cumulative_to_delta
 from src.utils.config import RAW_DATA_DIR, PROCESSED_DATA_DIR
 
 
+def _safe_extract(name, fn, *args):
+    try:
+        out = fn(*args)
+        logger.info(f"{name}: {len(out):,} rows")
+        return out
+    except Exception as e:
+        logger.warning(f"{name} skipped: {e}")
+        return pd.DataFrame()
+
+
 def run_pipeline() -> pd.DataFrame:
     logger.info("=== Re·Tech Fusion pipeline started ===")
 
-    # 1. EXTRACT
-    df = extract_all_excels(RAW_DATA_DIR)
-    if df.empty:
+    # 1. EXTRACT — Excel (mandatory) + PDFs + images (best-effort)
+    df_excel = extract_all_excels(RAW_DATA_DIR)
+
+    from src.extraction.extract_pdf import extract_all_pdfs
+    from src.extraction.extract_image import extract_all_images
+    df_pdf = _safe_extract("PDFs", extract_all_pdfs, RAW_DATA_DIR)
+    df_img = _safe_extract("Images", extract_all_images, RAW_DATA_DIR)
+
+    parts = [d for d in (df_excel, df_pdf, df_img) if d is not None and not d.empty]
+    if not parts:
         logger.error(f"No data extracted from {RAW_DATA_DIR}. Aborting.")
-        return df
+        return pd.DataFrame()
+    df = pd.concat(parts, ignore_index=True)
+    logger.info(f"Combined extract: {len(df):,} rows "
+                f"(excel={len(df_excel)}, pdf={len(df_pdf)}, img={len(df_img)})")
 
     # 2. NORMALIZE units
     df = normalize_to_kwh(df)
